@@ -57,6 +57,7 @@ def main_put():
 def send_command(child, command, longer_timeout=False):
     if longer_timeout:
         kwargs = dict(timeout=options.timeout)
+        print('Using extra timeout', options.timeout)
     else:
         kwargs = dict()
 
