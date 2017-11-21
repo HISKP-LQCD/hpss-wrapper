@@ -23,45 +23,50 @@ def indent(string):
     return '\n'.join(indented)
 
 
-def main_get(options):
+def main_get():
     child = start_session()
 
     print('Getting %s' % (options.source))
-    send_command(child, 'pget "%s"' % (options.source))
+    send_command(child, 'pget "%s"' % (options.source), longer_timeout=True)
 
     send_command(child, 'dir')
     send_command(child, 'quit')
 
 
-def main_interactive(options):
+def main_interactive():
     child = start_session()
     child.interact()
 
 
 
-def main_put(options):
+def main_put():
     child = start_session()
 
     if options.destination is None:
         print('Putting %s' % (options.source))
-        send_command(child, 'pput "%s"' % (options.source))
+        send_command(child, 'pput "%s"' % (options.source), longer_timeout=True)
     else:
         print('Putting %s to %s' % (options.source, options.destination))
         send_command(child, 'cd "%s"' % (options.destination))
-        send_command(child, 'pput "%s"' % (options.source))
+        send_command(child, 'pput "%s"' % (options.source), longer_timeout=True)
 
     send_command(child, 'dir')
     send_command(child, 'quit')
 
 
-def send_command(child, command):
-        child.expect('ftp> ')
-        print('\nBefore:\n')
-        print(indent(child.before))
-        print('\nAfter:\n')
-        print(indent(child.after))
-        print()
-        child.sendline(command)
+def send_command(child, command, longer_timeout=False):
+    if longer_timeout:
+        kwargs = dict(timeout=options.timeout)
+    else:
+        kwargs = dict()
+
+    child.expect('ftp> ', **kwargs)
+    print('\nBefore:\n')
+    print(indent(child.before))
+    print('\nAfter:\n')
+    print(indent(child.after))
+    print()
+    child.sendline(command)
 
 
 def start_session():
@@ -92,7 +97,7 @@ def control_command(dialog):
     return child
 
 
-def main_setup(options):
+def main_setup():
     username = raw_input('Your HPSS username: ')
     password = getpass.getpass('Your HPSS password: ')
 
@@ -116,7 +121,7 @@ def main_setup(options):
     os.chmod(CONFIGPATH, 0600)
 
 
-def main(options):
+def main():
     print('Please call with --help.')
     sys.exit(1)
 
@@ -136,6 +141,11 @@ def _parse_args():
         script with an action name and `-h` again to get help for that
         particular action.
         ''')
+
+    parser.add_argument('--timeout', default=3600,
+                        help='Waiting time for an answer from the pftp_client program for long commands like put and get. Default: %(default)s',
+                        type=int)
+
     subparsers = parser.add_subparsers(title='Commands')
 
     parser_get = subparsers.add_parser('get', help='Retrieve file from archive')
@@ -153,9 +163,10 @@ def _parse_args():
     parser_setup = subparsers.add_parser('interactive', help='Start an interactive session')
     parser_setup.set_defaults(func=main_interactive)
 
+    global options
     options = parser.parse_args()
 
-    options.func(options)
+    options.func()
 
 
 if __name__ == '__main__':
