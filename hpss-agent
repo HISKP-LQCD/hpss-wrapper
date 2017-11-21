@@ -1,0 +1,162 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+
+# Copyright © 2017 Martin Ueding <dev@martin-ueding.de>
+
+from __future__ import print_function
+
+import argparse
+import getpass
+import json
+import os
+import sys
+
+import pexpect
+
+
+CONFIGPATH = os.path.expanduser('~/.agent-config.js')
+
+
+def indent(string):
+    lines = string.split('\n')
+    indented = ['  ' + line for line in lines]
+    return '\n'.join(indented)
+
+
+def main_get(options):
+    child = start_session()
+
+    print('Getting %s' % (options.source))
+    send_command(child, 'pget "%s"' % (options.source))
+
+    send_command(child, 'dir')
+    send_command(child, 'quit')
+
+
+def main_interactive(options):
+    child = start_session()
+    child.interact()
+
+
+
+def main_put(options):
+    child = start_session()
+
+    if options.destination is None:
+        print('Putting %s' % (options.source))
+        send_command(child, 'pput "%s"' % (options.source))
+    else:
+        print('Putting %s to %s' % (options.source, options.destination))
+        send_command(child, 'cd "%s"' % (options.destination))
+        send_command(child, 'pput "%s"' % (options.source))
+
+    send_command(child, 'dir')
+    send_command(child, 'quit')
+
+
+def send_command(child, command):
+        child.expect('ftp> ')
+        print('\nBefore:\n')
+        print(indent(child.before))
+        print('\nAfter:\n')
+        print(indent(child.after))
+        print()
+        child.sendline(command)
+
+
+def start_session():
+    with open(CONFIGPATH) as f:
+        config = json.load(f)
+
+    child = control_command([
+        ('Name .*:.*', config['username']),
+        ('Password:', config['password']),
+        ('ftp> ', 'dir'),
+    ])
+
+    return child
+
+
+def control_command(dialog):
+    child = pexpect.spawn('pftp_client -w 4 hpsscore 4021')
+
+    for expect, sendline in dialog:
+        child.expect(expect)
+        print('\nBefore:\n')
+        print(indent(child.before))
+        print('\nAfter:\n')
+        print(indent(child.after))
+        print()
+        child.sendline(sendline)
+
+    return child
+
+
+def main_setup(options):
+    username = raw_input('Your HPSS username: ')
+    password = getpass.getpass('Your HPSS password: ')
+
+    control_command([
+        ('Name .*:.*', username),
+        ('Password:', password),
+        ('ftp> ', 'dir'),
+        ('ftp> ', 'quit'),
+    ])
+
+    print('Your username and password are accepted, these will be remembered in %s.' % CONFIGPATH)
+
+    config = dict(
+        username=username,
+        password=password,
+    )
+
+    with open(CONFIGPATH, 'w') as f:
+        json.dump(config, f, indent=2)
+
+    os.chmod(CONFIGPATH, 0600)
+
+
+def main(options):
+    print('Please call with --help.')
+    sys.exit(1)
+
+
+def _parse_args():
+    '''
+    Parses the command line arguments.
+
+    :return: Namespace with arguments.
+    :rtype: Namespace
+    '''
+    parser = argparse.ArgumentParser(
+        description='''
+        Wrapper for pftp_client.
+
+        You can use this script to perform the actions listed below. Call this
+        script with an action name and `-h` again to get help for that
+        particular action.
+        ''')
+    subparsers = parser.add_subparsers(title='Commands')
+
+    parser_get = subparsers.add_parser('get', help='Retrieve file from archive')
+    parser_get.add_argument('source')
+    parser_get.set_defaults(func=main_get)
+
+    parser_get = subparsers.add_parser('put', help='Put file into archive')
+    parser_get.add_argument('source')
+    parser_get.add_argument('destination', nargs='?')
+    parser_get.set_defaults(func=main_put)
+
+    parser_setup = subparsers.add_parser('setup', help='Setup password file')
+    parser_setup.set_defaults(func=main_setup)
+
+    parser_setup = subparsers.add_parser('interactive', help='Start an interactive session')
+    parser_setup.set_defaults(func=main_interactive)
+
+    options = parser.parse_args()
+
+    options.func(options)
+
+
+if __name__ == '__main__':
+    _parse_args()
