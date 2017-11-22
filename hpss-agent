@@ -66,13 +66,16 @@ def send_command(child, command, longer_timeout=False):
     else:
         kwargs = dict()
 
-    child.expect('ftp> ', **kwargs)
     print('\nBefore:\n')
     print(indent(child.before))
     print('\nAfter:\n')
     print(indent(child.after))
     print()
+
     child.sendline(command)
+
+    if command != 'quit':
+        child.expect('ftp> ', **kwargs)
 
 
 def start_session():
@@ -84,6 +87,8 @@ def start_session():
         ('Password:', config['password']),
         ('ftp> ', 'dir'),
     ])
+
+    child.expect('ftp> ')
 
     return child
 
