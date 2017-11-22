@@ -22,12 +22,17 @@ def indent(string):
     indented = ['  ' + line for line in lines]
     return '\n'.join(indented)
 
+def split_source(path):
+    return os.path.dirname(path), os.path.basename(path)
 
 def main_get():
     child = start_session()
 
     print('Getting %s' % (options.source))
-    send_command(child, 'pget "%s"' % (options.source), longer_timeout=True)
+    #need to split up source into dirname and basename
+    dirname, basename = split_source(options.source)
+    send_command(child, 'cd "%s"' % (dirname))
+    send_command(child, 'pget "%s"' % (basename), longer_timeout=True)
 
     send_command(child, 'dir')
     send_command(child, 'quit')
