@@ -55,8 +55,43 @@ def main_put():
         send_command(child, 'cd "%s"' % (options.destination))
         send_command(child, 'pput "%s"' % (options.source), longer_timeout=True)
 
-    send_command(child, 'dir')
+    lsl = send_command(child, 'ls -l')
+    assert_correct_transfer(options.source, lsl)
+
     send_command(child, 'quit')
+
+
+def assert_correct_transfer(source, lsl):
+    lines = [l.strip() for l in lsl.strip().split('\n')]
+
+    assert lines[0] == 'ls -l'
+    assert lines[1] == '200 PORT command successful.'
+    assert lines[2] == '150 Opening ASCII mode data connection for file list.'
+    assert lines[-2] == '226 Transfer complete.'
+
+    file_lines = lines[3:-2]
+
+    for line in file_lines:
+        permissions, links, owner, group, size, month, day, time, filename = \
+                line.split()
+
+        if filename == os.path.basename(source):
+            archive_size = int(size)
+            local_size = os.path.getsize(source)
+            print('File sizes of file "%s": archive = %d, local = %s.' %
+                  (filename, archive_size, local_size))
+
+            # Make sure that the sizes match.
+            if archive_size != local_size:
+                raise RuntimeError('File sizes do not match')
+
+            # We have the found the file that we are interested in, therefore
+            # we are done here.
+            break
+    else:
+        # We left the loop by iterating through all elements. This means that
+        # the desired line could *not* be found, therefore this is an error.
+        raise RuntimeError('The file to be transferred could not be found in the archive directory listing.')
 
 
 def send_command(child, command, longer_timeout=False):
@@ -76,6 +111,8 @@ def send_command(child, command, longer_timeout=False):
 
     if command != 'quit':
         child.expect('ftp> ', **kwargs)
+
+    return child.before
 
 
 def start_session():
