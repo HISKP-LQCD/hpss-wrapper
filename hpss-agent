@@ -121,6 +121,7 @@ def _parse_args():
         script with an action name and `-h` again to get help for that
         particular action.
         ''')
+    parser.set_defaults(func=main)
 
     parser.add_argument('--timeout', default=3600,
                         help='Waiting time for an answer from the pftp_client program for long commands like put and get. Default: %(default)s',
