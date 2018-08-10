@@ -1,159 +1,51 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # Copyright © 2017-2018 Martin Ueding <dev@martin-ueding.de>
 
-from __future__ import print_function
-
 import argparse
+import ftplib
 import getpass
 import json
+import logging
 import os
 import sys
-import logging
-
-import pexpect
 
 
 CONFIGPATH = os.path.expanduser('~/.agent-config.js')
 logger = logging.getLogger(__name__)
 
 
-def indent(string):
-    lines = string.split('\n')
-    indented = ['  ' + line for line in lines]
-    return '\n'.join(indented)
+def get_remote_size(ftp, filename):
+    for path, properties in ftp.mlsd():
+        logger.debug('Found %s on archive.', path)
+        if os.path.basename(path) == filename:
+            return int(properties['size'])
+
+    raise RuntimeError('Remote file not found.')
 
 
-def split_source(path):
-    return os.path.dirname(path), os.path.basename(path)
+def assert_correct_transfer(ftp, filename):
+    local_size = os.path.getsize(filename)
+    remote_size = get_remote_size(ftp, filename)
+
+    logger.debug('Local size of file is   %d.', local_size)
+    logger.debug('Archive size of file is %d.', remote_size)
+
+    assert local_size == remote_size, 'The file in the archive must have the exact same size as on disk.'
 
 
-def main_get():
-    child = start_session()
-
-    print('Getting %s' % (options.source))
-    #need to split up source into dirname and basename
-    dirname, basename = split_source(options.source)
-    send_command(child, 'cd "%s"' % (dirname))
-    send_command(child, 'pget "%s"' % (basename), longer_timeout=True)
-
-    send_command(child, 'dir')
-    send_command(child, 'quit')
-
-
-def main_interactive():
-    child = start_session()
-    child.interact()
-
-
-def main_put():
-    child = start_session()
-
-    if options.destination is None:
-        print('Putting %s' % (options.source))
-        send_command(child, 'pput "%s"' % (options.source), longer_timeout=True)
-    else:
-        print('Putting %s to %s' % (options.source, options.destination))
-        send_command(child, 'cd "%s"' % (options.destination))
-        send_command(child, 'pput "%s"' % (options.source), longer_timeout=True)
-
-    lsl = send_command(child, 'ls -l')
-    assert_correct_transfer(options.source, lsl)
-
-    send_command(child, 'quit')
-
-
-def assert_correct_transfer(source, lsl):
-    lines = [l.strip() for l in lsl.strip().split('\n')]
-
-    assert lines[0] == 'ls -l'
-    assert lines[1] == '200 PORT command successful.'
-    assert lines[2] == '150 Opening ASCII mode data connection for file list.'
-    assert lines[-2] == '226 Transfer complete.'
-
-    file_lines = lines[3:-2]
-
-    for line in file_lines:
-        permissions, links, owner, group, size, month, day, time, filename = \
-                line.split()
-
-        if filename == os.path.basename(source):
-            archive_size = int(size)
-            local_size = os.path.getsize(source)
-            print('File sizes of file "%s": archive = %d, local = %s.' %
-                  (filename, archive_size, local_size))
-
-            # Make sure that the sizes match.
-            if archive_size != local_size:
-                raise RuntimeError('File sizes do not match')
-
-            # We have the found the file that we are interested in, therefore
-            # we are done here.
-            break
-    else:
-        # We left the loop by iterating through all elements. This means that
-        # the desired line could *not* be found, therefore this is an error.
-        raise RuntimeError('The file to be transferred could not be found in the archive directory listing.')
-
-
-def send_command(child, command, longer_timeout=False):
-    if longer_timeout:
-        kwargs = dict(timeout=options.timeout)
-        logger.info('Using extra timeout %d', options.timeout)
-    else:
-        kwargs = dict()
-
-    logger.debug('Before: %s', repr(child.before))
-    logger.debug('After: %s', repr(child.after))
-
-    child.sendline(command)
-
-    if command != 'quit':
-        child.expect('ftp> ', **kwargs)
-
-    return child.before
-
-
-def start_session():
+def start_session(ftp):
     with open(CONFIGPATH) as f:
         config = json.load(f)
 
-    child = control_command([
-        ('Name .*:.*', config['username']),
-        ('Password:', config['password']),
-        ('ftp> ', 'dir'),
-    ])
-
-    child.expect('ftp> ')
-
-    return child
-
-
-def control_command(dialog):
-    child = pexpect.spawn('pftp_client -w 4 hpsscore 4021')
-
-    for expect, sendline in dialog:
-        child.expect(expect)
-        logger.debug('Before: %s', repr(child.before))
-        logger.debug('After: %s', repr(child.after))
-        child.sendline(sendline)
-
-    return child
+    ftp.connect('hpsscore.hww.de', 4021)
+    ftp.login(config['username'], config['password'])
 
 
 def main_setup():
     username = raw_input('Your HPSS username: ')
     password = getpass.getpass('Your HPSS password: ')
-
-    control_command([
-        ('Name .*:.*', username),
-        ('Password:', password),
-        ('ftp> ', 'dir'),
-        ('ftp> ', 'quit'),
-    ])
-
-    print('Your username and password are accepted, these will be remembered in %s.' % CONFIGPATH)
 
     config = dict(
         username=username,
@@ -163,7 +55,50 @@ def main_setup():
     with open(CONFIGPATH, 'w') as f:
         json.dump(config, f, indent=2)
 
-    os.chmod(CONFIGPATH, 0600)
+    os.chmod(CONFIGPATH, 0o600)
+
+
+def set_class_of_service(ftp, size):
+    if size < 500 * 10**6:
+        cos = 102
+    elif size < 8 * 10**9:
+        cos = 122
+    else:
+        cos = 132
+
+    ftp.sendcmd('site setcos %d'.format(cos))
+
+
+def main_get():
+    with ftplib.FTP() as ftp:
+        start_session(ftp)
+
+        source_base = os.path.basename(options.source)
+
+        ftp.cwd(os.path.dirname(options.source))
+
+        with open(options.source, 'wb') as f:
+            logger.info('Starting transfer from archive of %s', source_base)
+            ftp.retrbinary('RETR {}'.format(source_base), f.write)
+
+        assert_correct_transfer(ftp, source_base)
+
+
+def main_put():
+    with ftplib.FTP() as ftp:
+        start_session(ftp)
+
+        source_base = os.path.basename(options.source)
+
+        if options.destination is not None:
+            logger.info('Entering directory %s', options.destination)
+            ftp.cwd(options.destination)
+
+        with open(options.source, 'rb') as f:
+            logger.info('Starting transfer to archive of %s', source_base)
+            ftp.storbinary('STOR {}'.format(source_base), f)
+
+        assert_correct_transfer(ftp, source_base)
 
 
 def main():
@@ -200,14 +135,11 @@ def _parse_args():
 
     parser_get = subparsers.add_parser('put', help='Put file into archive')
     parser_get.add_argument('source')
-    parser_get.add_argument('destination', nargs='?')
+    parser_get.add_argument('destination', nargs='?', help='Destination directory in the archive')
     parser_get.set_defaults(func=main_put)
 
     parser_setup = subparsers.add_parser('setup', help='Setup password file')
     parser_setup.set_defaults(func=main_setup)
-
-    parser_setup = subparsers.add_parser('interactive', help='Start an interactive session')
-    parser_setup.set_defaults(func=main_interactive)
 
     global options
     options = parser.parse_args()
