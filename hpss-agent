@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
-# Copyright © 2017 Martin Ueding <dev@martin-ueding.de>
+# Copyright © 2017-2018 Martin Ueding <dev@martin-ueding.de>
 
 from __future__ import print_function
 
@@ -10,11 +10,13 @@ import getpass
 import json
 import os
 import sys
+import logging
 
 import pexpect
 
 
 CONFIGPATH = os.path.expanduser('~/.agent-config.js')
+logger = logging.getLogger(__name__)
 
 
 def indent(string):
@@ -22,8 +24,10 @@ def indent(string):
     indented = ['  ' + line for line in lines]
     return '\n'.join(indented)
 
+
 def split_source(path):
     return os.path.dirname(path), os.path.basename(path)
+
 
 def main_get():
     child = start_session()
@@ -41,7 +45,6 @@ def main_get():
 def main_interactive():
     child = start_session()
     child.interact()
-
 
 
 def main_put():
@@ -97,15 +100,12 @@ def assert_correct_transfer(source, lsl):
 def send_command(child, command, longer_timeout=False):
     if longer_timeout:
         kwargs = dict(timeout=options.timeout)
-        print('Using extra timeout', options.timeout)
+        logger.info('Using extra timeout %d', options.timeout)
     else:
         kwargs = dict()
 
-    print('\nBefore:\n')
-    print(indent(child.before))
-    print('\nAfter:\n')
-    print(indent(child.after))
-    print()
+    logger.debug('Before: %s', repr(child.before))
+    logger.debug('After: %s', repr(child.after))
 
     child.sendline(command)
 
@@ -135,11 +135,8 @@ def control_command(dialog):
 
     for expect, sendline in dialog:
         child.expect(expect)
-        print('\nBefore:\n')
-        print(indent(child.before))
-        print('\nAfter:\n')
-        print(indent(child.after))
-        print()
+        logger.debug('Before: %s', repr(child.before))
+        logger.debug('After: %s', repr(child.after))
         child.sendline(sendline)
 
     return child
@@ -193,6 +190,7 @@ def _parse_args():
     parser.add_argument('--timeout', default=3600,
                         help='Waiting time for an answer from the pftp_client program for long commands like put and get. Default: %(default)s',
                         type=int)
+    parser.add_argument('-v', '--verbose', action='count')
 
     subparsers = parser.add_subparsers(title='Commands')
 
@@ -213,6 +211,13 @@ def _parse_args():
 
     global options
     options = parser.parse_args()
+
+    if options.verbose == 1:
+        logging.basicConfig(level=logging.INFO)
+    elif options.verbose == 2:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.WARN)
 
     options.func()
 
