@@ -66,6 +66,8 @@ def set_class_of_service(ftp, size):
     else:
         cos = 132
 
+    logger.debug('Setting class of service to %d.', cos)
+
     ftp.sendcmd('site setcos %d'.format(cos))
 
 
@@ -76,6 +78,7 @@ def main_get():
         source_base = os.path.basename(options.source)
 
         ftp.cwd(os.path.dirname(options.source))
+        set_class_of_service(ftp, get_remove_size(ftp, source_base))
 
         with open(options.source, 'wb') as f:
             logger.info('Starting transfer from archive of %s', source_base)
@@ -93,6 +96,8 @@ def main_put():
         if options.destination is not None:
             logger.info('Entering directory %s', options.destination)
             ftp.cwd(options.destination)
+
+        set_class_of_service(ftp, os.path.getsize(options.source))
 
         with open(options.source, 'rb') as f:
             logger.info('Starting transfer to archive of %s', source_base)
