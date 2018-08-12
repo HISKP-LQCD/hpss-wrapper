@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_remote_size(ftp, filename):
+    '''
+    Retrieves the file size in bytes of the remote file.
+
+    :param ftplib.FTP ftp: FTP connection object
+    :param str filename: Filename of a file in the current working directory on
+        the remote.
+    '''
     for path, properties in ftp.mlsd():
         logger.debug('Found %s on archive.', path)
         if os.path.basename(path) == filename:
@@ -26,6 +33,14 @@ def get_remote_size(ftp, filename):
 
 
 def assert_correct_transfer(ftp, filename):
+    '''
+    Asserts that the transfer has been done correctly by requiring exact
+    equality of the file sizes locally and removely.
+
+    :param ftplib.FTP ftp: FTP connection object
+    :param str filename: Name of the file, file has to be found in the current
+         working directory locally and remotely.
+    '''
     local_size = os.path.getsize(filename)
     remote_size = get_remote_size(ftp, filename)
 
@@ -36,11 +51,37 @@ def assert_correct_transfer(ftp, filename):
 
 
 def start_session(ftp):
+    '''
+    :param ftplib.FTP ftp: FTP connection object where the ``connect`` method
+        has not been called yet.
+    :returns ftplib.FTP: FTP connection object that is now connected and logged
+        in.
+    '''
     with open(CONFIGPATH) as f:
         config = json.load(f)
 
     ftp.connect('hpsscore.hww.de', 4021)
     ftp.login(config['username'], config['password'])
+
+
+def set_class_of_service(ftp, size):
+    '''
+    The HPSS has a non-standard “class of service” concept. One needs to set it
+    before a transfer, otherwise the connection might be dropped prematurely.
+
+    :param ftplib.FTP ftp: FTP connection object
+    :param int size: File size in bytes
+    '''
+    if size < 500 * 10**6:
+        cos = 102
+    elif size < 8 * 10**9:
+        cos = 122
+    else:
+        cos = 132
+
+    logger.debug('Setting class of service to %d.', cos)
+
+    ftp.sendcmd('SITE setcos {}'.format(cos))
 
 
 def main_setup():
@@ -56,19 +97,6 @@ def main_setup():
         json.dump(config, f, indent=2)
 
     os.chmod(CONFIGPATH, 0o600)
-
-
-def set_class_of_service(ftp, size):
-    if size < 500 * 10**6:
-        cos = 102
-    elif size < 8 * 10**9:
-        cos = 122
-    else:
-        cos = 132
-
-    logger.debug('Setting class of service to %d.', cos)
-
-    ftp.sendcmd('SITE setcos {}'.format(cos))
 
 
 def main_get():
