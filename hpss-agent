@@ -44,7 +44,7 @@ def start_session(ftp):
 
 
 def main_setup():
-    username = raw_input('Your HPSS username: ')
+    username = input('Your HPSS username: ')
     password = getpass.getpass('Your HPSS password: ')
 
     config = dict(
