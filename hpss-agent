@@ -68,7 +68,7 @@ def set_class_of_service(ftp, size):
 
     logger.debug('Setting class of service to %d.', cos)
 
-    ftp.sendcmd('site setcos %d'.format(cos))
+    ftp.sendcmd('site setcos {}'.format(cos))
 
 
 def main_get():
